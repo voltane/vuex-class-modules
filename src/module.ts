@@ -20,7 +20,7 @@ function moduleDecoratorFactory(moduleOptions?: ModuleOptions) {
 
       const factory = new VuexClassModuleFactory(constructor, instance, moduleOptions || {});
 
-      factory.registerVuexModule();
+      factory.registerVuexModule((moduleOptions || {}).preserveState || false);
       return factory.buildAccessor();
     };
     accessor.prototype = Object.create(constructor.prototype);

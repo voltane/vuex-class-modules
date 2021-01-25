@@ -4,6 +4,7 @@ import { VuexModule } from "./VuexModule";
 
 export interface ModuleOptions {
   generateMutationSetters?: boolean;
+  preserveState?: boolean
 }
 
 export interface RegisterOptions {
@@ -29,6 +30,7 @@ interface ModuleDefinition {
   mutations: Dictionary<(payload?: any) => void>;
   actions: Dictionary<(payload?: any) => Promise<void>>;
   localFunctions: Dictionary<(...args: any[]) => any>;
+  localVariables: Dictionary<any>;
 }
 interface StoreProxyDefinition {
   state?: Dictionary<any>;
@@ -41,6 +43,7 @@ interface StoreProxyDefinition {
   useNamespaceKey?: boolean;
   excludeModuleRefs?: boolean;
   excludeLocalFunctions?: boolean;
+  excludeLocalVariables?: boolean;
 }
 
 export class VuexClassModuleFactory {
@@ -54,7 +57,8 @@ export class VuexClassModuleFactory {
     getters: {},
     mutations: {},
     actions: {},
-    localFunctions: {}
+    localFunctions: {},
+    localVariables: {}
   };
 
   constructor(classModule: ModulePrototype, instance: IVuexModule, moduleOptions: ModuleOptions) {
@@ -69,7 +73,9 @@ export class VuexClassModuleFactory {
     for (const key of Object.keys(this.instance)) {
       const val = this.instance[key];
       if (key !== "__options" && this.instance.hasOwnProperty(key)) {
-        if (val instanceof VuexModule) {
+        if (key.startsWith("$")) {
+          this.definition.localVariables[key] = val;
+        } else if (val instanceof VuexModule) {
           this.definition.moduleRefs[key] = val;
         } else {
           this.definition.state[key] = this.instance[key];
@@ -112,7 +118,7 @@ export class VuexClassModuleFactory {
     }
   }
 
-  registerVuexModule() {
+  registerVuexModule(preserveState: boolean) {
     const vuexModule: StoreModule<any, any> = {
       state: this.definition.state,
       getters: {},
@@ -169,18 +175,24 @@ export class VuexClassModuleFactory {
 
     // register module
     const { store, name } = this.registerOptions;
-    if (store.state[name]) {
-      if (module.hot) {
-        store.hotUpdate({
-          modules: {
-            [name]: vuexModule
-          }
-        });
-      } else {
-        throw Error(`[vuex-class-module]: A module with name '${name}' already exists.`);
-      }
+    if (preserveState) {
+      store.registerModule(this.registerOptions.name, vuexModule, {
+        preserveState: !!store.state[name]
+      });
     } else {
-      store.registerModule(this.registerOptions.name, vuexModule);
+      if (store.state[name]) {
+        if (module.hot) {
+          store.hotUpdate({
+            modules: {
+              [name]: vuexModule
+            }
+          });
+        } else {
+          throw Error(`[vuex-class-module]: A module with name '${name}' already exists.`);
+        }
+      } else {
+        store.registerModule(this.registerOptions.name, vuexModule);
+      }
     }
   }
 
@@ -199,7 +211,8 @@ export class VuexClassModuleFactory {
       stateSetter,
       useNamespaceKey: true,
       excludeModuleRefs: true,
-      excludeLocalFunctions: true
+      excludeLocalFunctions: true,
+      excludeLocalVariables: true,
     });
 
     // watch API
@@ -238,6 +251,10 @@ export class VuexClassModuleFactory {
     }
     if (!proxyDefinition.excludeModuleRefs) {
       mapValues(obj, this.definition.moduleRefs, val => val);
+    }
+
+    if (!proxyDefinition.excludeLocalVariables) {
+      mapValues(obj, this.definition.localVariables, val => val);
     }
 
     const namespaceKey = proxyDefinition.useNamespaceKey ? this.registerOptions.name + "/" : "";
